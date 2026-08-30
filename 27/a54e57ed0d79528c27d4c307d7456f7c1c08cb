@@ -1,0 +1,22 @@
+packages/server/src/server/agent/agent-manager.ts
+  s_c026caa2269a38::t_04ffc70e7abefc 909-911
+packages/server/src/server/agent/agent-manager.test.ts
+  s_c026caa2269a38::t_04ffc70e7abefc 9007-9013,9083-9118
+  s_c026caa2269a38::t_84f87ee90d3024 9119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "27a54e57ed0d79528c27d4c307d7456f7c1c08cb",
+  "prompts": {},
+  "sessions": {
+    "s_c026caa2269a38": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fac1358e7ffeHxab59zBbRDRab",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ryan Swift <git@thisisryanswift.com>"
+    }
+  }
+}
