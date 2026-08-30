@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   decodeFileTransferFrame,
@@ -14,11 +14,39 @@ import { FileUploadStore } from "./index.js";
 const tempDirs: string[] = [];
 
 describe("file uploads", () => {
+  beforeEach(() => {
+    vi.stubEnv("PASEO_UPLOADS_DIR", "");
+  });
+
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.useRealTimers();
     for (const dir of tempDirs.splice(0)) {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("stores uploads in a configured shared directory", async () => {
+    const paseoHome = makePaseoHome();
+    const uploadsDirectory = join(paseoHome, "shared-uploads");
+    vi.stubEnv("PASEO_UPLOADS_DIR", uploadsDirectory);
+    const uploads = new FileUploadStore({ paseoHome });
+
+    uploads.beginUpload({
+      type: "file.upload.request",
+      requestId: "req-shared",
+      fileName: "notes.txt",
+      mimeType: "text/plain",
+      size: 5,
+    });
+
+    await uploads.receiveFrame(uploadBegins("req-shared"));
+    await uploads.receiveFrame(uploadChunk("req-shared", "hello"));
+    const response = await uploads.receiveFrame(uploadEnds("req-shared"));
+
+    const path = join(uploadsDirectory, "upload_req-shared", "notes.txt");
+    expect(readFileSync(path, "utf8")).toBe("hello");
+    expect(response?.payload.file?.path).toBe(path);
   });
 
   it("stores chunked upload bytes and returns an uploaded-file attachment", async () => {
