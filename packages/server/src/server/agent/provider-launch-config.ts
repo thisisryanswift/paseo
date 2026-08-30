@@ -191,6 +191,9 @@ export function migrateProviderSettings(
     if (parsedOld.data.env) {
       nextEntry.env = parsedOld.data.env;
     }
+    if (parsedOld.data.serverUrl) {
+      nextEntry.serverUrl = parsedOld.data.serverUrl;
+    }
     if (!builtinProviderIdSet.has(providerId) && nextEntry.extends === undefined) {
       delete nextEntry.extends;
     }

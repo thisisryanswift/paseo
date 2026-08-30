@@ -12,6 +12,7 @@ import {
   type TextPartInput as OpenCodeTextPartInput,
 } from "@opencode-ai/sdk/v2/client";
 import fs from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { createPathEquivalenceMatcher } from "../../../utils/path.js";
 import pLimit from "p-limit";
 import type { Logger } from "pino";
@@ -76,6 +77,10 @@ import {
   type OpenCodeServerAcquisition,
   type OpenCodeServerManagerLike,
 } from "./opencode/server-manager.js";
+import {
+  ExternalOpenCodeServerManager,
+  normalizeOpenCodeServerUrl,
+} from "./opencode/external-server-manager.js";
 import { resolveOpenCodeHomeDir } from "./opencode/paths.js";
 import {
   formatProviderDiagnostic,
@@ -114,6 +119,7 @@ const OPENCODE_CAPABILITIES: AgentCapabilityFlags = {
   supportsRewindFiles: false,
   supportsRewindBoth: true,
 };
+const OPENCODE_EXTERNAL_HEALTH_TIMEOUT_MS = 5_000;
 
 const OPENCODE_BUILD_MODE_ID = "build";
 const OPENCODE_LEGACY_FULL_ACCESS_MODE_ID = "full-access";
@@ -1288,10 +1294,87 @@ interface OpenCodeAgentClientDeps {
   managedProcesses?: ManagedProcessRegistry;
 }
 
-type OpenCodeClientFactory = (options: { baseUrl: string; directory: string }) => OpencodeClient;
+interface OpenCodeClientOptions {
+  baseUrl: string;
+  directory: string;
+  headers?: Record<string, string>;
+}
 
-function createSdkOpenCodeClient(options: { baseUrl: string; directory: string }): OpencodeClient {
+type OpenCodeClientFactory = (options: OpenCodeClientOptions) => OpencodeClient;
+
+function createSdkOpenCodeClient(options: OpenCodeClientOptions): OpencodeClient {
   return createOpencodeClient(options satisfies OpencodeClientConfig & { directory: string });
+}
+
+function buildOpenCodeServerHeaders(
+  runtimeSettings: ProviderRuntimeSettings | undefined,
+): Record<string, string> | undefined {
+  const password = runtimeSettings?.env?.OPENCODE_SERVER_PASSWORD;
+  if (!password) {
+    return undefined;
+  }
+  const username = runtimeSettings?.env?.OPENCODE_SERVER_USERNAME || "opencode";
+  return {
+    authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`,
+  };
+}
+
+async function checkExternalOpenCodeServer(
+  serverUrl: string,
+  headers: Record<string, string> | undefined,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  signal?.throwIfAborted();
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(signal?.reason);
+  signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = setTimeout(() => controller.abort(), OPENCODE_EXTERNAL_HEALTH_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${normalizeOpenCodeServerUrl(serverUrl)}/global/health`, {
+      headers,
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return false;
+    }
+    const body: unknown = await response.json();
+    return typeof body === "object" && body !== null && Reflect.get(body, "healthy") === true;
+  } catch {
+    signal?.throwIfAborted();
+    return false;
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortFromCaller);
+  }
+}
+
+function resolveOpenCodeResumeServerUrl(options: {
+  handle: AgentPersistenceHandle;
+  configuredServerUrl: string | undefined;
+}): string | undefined {
+  const { handle, configuredServerUrl } = options;
+  const persistedServerUrl = handle.metadata?.openCodeServerUrl;
+  const registeredServerUrl = getOpenCodeChildSessionServerUrl(handle.sessionId);
+  const sessionServerUrl =
+    typeof persistedServerUrl === "string" ? persistedServerUrl : registeredServerUrl;
+
+  if (configuredServerUrl && !sessionServerUrl) {
+    throw new Error(
+      `OpenCode session '${handle.sessionId}' does not identify its original OpenCode server`,
+    );
+  }
+  if (
+    (configuredServerUrl &&
+      sessionServerUrl &&
+      normalizeOpenCodeServerUrl(sessionServerUrl) !==
+        normalizeOpenCodeServerUrl(configuredServerUrl)) ||
+    (!configuredServerUrl && typeof persistedServerUrl === "string")
+  ) {
+    throw new Error(
+      `OpenCode session '${handle.sessionId}' belongs to a different OpenCode server`,
+    );
+  }
+  return registeredServerUrl;
 }
 
 export class OpenCodeAgentClient implements AgentClient {
@@ -1305,6 +1388,7 @@ export class OpenCodeAgentClient implements AgentClient {
   private readonly resolveHomeDir: () => string;
   private readonly logger: Logger;
   private readonly runtimeSettings?: ProviderRuntimeSettings;
+  private readonly serverHeaders?: Record<string, string>;
   private readonly modelContextWindows = new Map<string, number>();
 
   constructor(
@@ -1314,12 +1398,15 @@ export class OpenCodeAgentClient implements AgentClient {
   ) {
     this.logger = logger.child({ module: "agent", provider: "opencode" });
     this.runtimeSettings = runtimeSettings;
+    this.serverHeaders = buildOpenCodeServerHeaders(runtimeSettings);
     this.serverManager =
       deps.serverManager ??
-      OpenCodeServerManager.getInstance(this.logger, runtimeSettings, {
-        managedProcesses: deps.managedProcesses,
-        resolveHomeDir: deps.resolveHomeDir,
-      });
+      (runtimeSettings?.serverUrl
+        ? new ExternalOpenCodeServerManager(runtimeSettings.serverUrl)
+        : OpenCodeServerManager.getInstance(this.logger, runtimeSettings, {
+            managedProcesses: deps.managedProcesses,
+            resolveHomeDir: deps.resolveHomeDir,
+          }));
     this.createOpenCodeClient = deps.createClient ?? createSdkOpenCodeClient;
     this.resolveHomeDir = deps.resolveHomeDir ?? resolveOpenCodeHomeDir;
   }
@@ -1337,6 +1424,7 @@ export class OpenCodeAgentClient implements AgentClient {
     const client = this.createOpenCodeClient({
       baseUrl: url,
       directory: openCodeConfig.cwd,
+      ...(this.serverHeaders ? { headers: this.serverHeaders } : {}),
     });
 
     try {
@@ -1367,6 +1455,8 @@ export class OpenCodeAgentClient implements AgentClient {
         options?.persistSession,
         launchContext?.agentId,
         url,
+        this.runtimeSettings?.serverUrl !== undefined,
+        this.runtimeSettings?.serverUrl !== undefined,
       );
     } catch (error) {
       await acquisition.release();
@@ -1380,6 +1470,10 @@ export class OpenCodeAgentClient implements AgentClient {
     launchContext?: AgentLaunchContext,
   ): Promise<AgentSession> {
     const metadata = (handle.metadata ?? {}) as Partial<AgentSessionConfig>;
+    const registeredServerUrl = resolveOpenCodeResumeServerUrl({
+      handle,
+      configuredServerUrl: this.runtimeSettings?.serverUrl,
+    });
     const cwd = overrides?.cwd ?? metadata.cwd;
     if (!cwd) {
       throw new Error("OpenCode resume requires the original working directory");
@@ -1392,7 +1486,6 @@ export class OpenCodeAgentClient implements AgentClient {
       cwd,
     };
     const openCodeConfig = this.assertConfig(config);
-    const registeredServerUrl = getOpenCodeChildSessionServerUrl(handle.sessionId);
     const registeredAcquisition = registeredServerUrl
       ? this.serverManager.acquireExisting(registeredServerUrl)
       : null;
@@ -1405,6 +1498,7 @@ export class OpenCodeAgentClient implements AgentClient {
     const client = this.createOpenCodeClient({
       baseUrl: url,
       directory: openCodeConfig.cwd,
+      ...(this.serverHeaders ? { headers: this.serverHeaders } : {}),
     });
 
     try {
@@ -1420,7 +1514,8 @@ export class OpenCodeAgentClient implements AgentClient {
         undefined,
         launchContext?.agentId,
         url,
-        registeredAcquisition !== null,
+        registeredAcquisition !== null || this.runtimeSettings?.serverUrl !== undefined,
+        this.runtimeSettings?.serverUrl !== undefined,
       );
     } catch (error) {
       await acquisition.release();
@@ -1444,11 +1539,20 @@ export class OpenCodeAgentClient implements AgentClient {
       const { url } = acquisition.server;
       const isGlobalCatalog = options.scope === "global";
 
-      // OpenCode treats the catalog directory as a workspace. The global catalog
-      // is not a project, so use the neutral OpenCode home instead of user home.
-      const directory = isGlobalCatalog ? this.resolveHomeDir() : options.cwd;
-
+      // OpenCode treats the catalog directory as a workspace. External servers may
+      // run as another user, so their global catalog needs a host-shared neutral path.
+      let directory: string;
       if (isGlobalCatalog) {
+        if (this.runtimeSettings?.serverUrl) {
+          directory = tmpdir();
+        } else {
+          directory = this.resolveHomeDir();
+        }
+      } else {
+        directory = options.cwd;
+      }
+
+      if (isGlobalCatalog && !this.runtimeSettings?.serverUrl) {
         await fs.mkdir(directory, { recursive: true });
         this.logger.debug(
           { directory },
@@ -1456,7 +1560,11 @@ export class OpenCodeAgentClient implements AgentClient {
         );
       }
 
-      const client = this.createOpenCodeClient({ baseUrl: url, directory });
+      const client = this.createOpenCodeClient({
+        baseUrl: url,
+        directory,
+        ...(this.serverHeaders ? { headers: this.serverHeaders } : {}),
+      });
       const [models, modes] = await Promise.all([
         this.fetchModelsFromClient(client, directory, context),
         this.fetchModesFromClient(client, directory, context),
@@ -1474,6 +1582,7 @@ export class OpenCodeAgentClient implements AgentClient {
     const client = this.createOpenCodeClient({
       baseUrl: url,
       directory: openCodeConfig.cwd,
+      ...(this.serverHeaders ? { headers: this.serverHeaders } : {}),
     });
 
     try {
@@ -1495,6 +1604,7 @@ export class OpenCodeAgentClient implements AgentClient {
     const client = this.createOpenCodeClient({
       baseUrl: url,
       directory: options?.cwd ?? "",
+      ...(this.serverHeaders ? { headers: this.serverHeaders } : {}),
     });
 
     try {
@@ -1510,6 +1620,7 @@ export class OpenCodeAgentClient implements AgentClient {
     const client = this.createOpenCodeClient({
       baseUrl: url,
       directory: input.cwd,
+      ...(this.serverHeaders ? { headers: this.serverHeaders } : {}),
     });
 
     try {
@@ -1524,16 +1635,33 @@ export class OpenCodeAgentClient implements AgentClient {
       const messages = await readOpenCodeSessionMessagesFromSdk(client, session);
       const modeId = resolveOpenCodePersistedSessionModeId(session, messages);
       const model = resolveOpenCodePersistedSessionModel(session, messages);
+      const importedConfig = {
+        title: normalizeOpenCodeSessionTitle(session.title) ?? undefined,
+        ...(modeId ? { modeId } : {}),
+        ...(model ? { model } : {}),
+      };
       return await importSessionFromPersistence({
         provider: "opencode",
         request: input,
         context,
         resumeSession: this.resumeSession.bind(this),
-        config: {
-          title: normalizeOpenCodeSessionTitle(session.title) ?? undefined,
-          ...(modeId ? { modeId } : {}),
-          ...(model ? { model } : {}),
-        },
+        config: importedConfig,
+        ...(this.runtimeSettings?.serverUrl
+          ? {
+              persistence: {
+                provider: "opencode",
+                sessionId: input.providerHandleId,
+                nativeHandle: input.providerHandleId,
+                metadata: {
+                  ...context.storedConfig,
+                  ...importedConfig,
+                  provider: "opencode",
+                  cwd: input.cwd,
+                  openCodeServerUrl: normalizeOpenCodeServerUrl(this.runtimeSettings.serverUrl),
+                },
+              },
+            }
+          : {}),
       });
     } finally {
       await acquisition.release();
@@ -1557,13 +1685,17 @@ export class OpenCodeAgentClient implements AgentClient {
       throw new Error("OpenCode native archive update requires the original working directory");
     }
 
-    const registeredServerUrl = getOpenCodeChildSessionServerUrl(handle.sessionId);
+    const registeredServerUrl = resolveOpenCodeResumeServerUrl({
+      handle,
+      configuredServerUrl: this.runtimeSettings?.serverUrl,
+    });
     const acquisition =
       (registeredServerUrl ? this.serverManager.acquireExisting(registeredServerUrl) : null) ??
       (await this.serverManager.acquireCurrent());
     const client = this.createOpenCodeClient({
       baseUrl: acquisition.server.url,
       directory: metadata.cwd,
+      ...(this.serverHeaders ? { headers: this.serverHeaders } : {}),
     });
     try {
       // OpenCode accepts null to clear the archive timestamp, but this SDK
@@ -1590,7 +1722,15 @@ export class OpenCodeAgentClient implements AgentClient {
     }
   }
 
-  async isAvailable(): Promise<boolean> {
+  async isAvailable(signal?: AbortSignal): Promise<boolean> {
+    if (this.runtimeSettings?.serverUrl) {
+      return await checkExternalOpenCodeServer(
+        this.runtimeSettings.serverUrl,
+        this.serverHeaders,
+        signal,
+      );
+    }
+    signal?.throwIfAborted();
     const launch = await resolveProviderLaunch({
       commandConfig: this.runtimeSettings?.command,
       defaultBinary: "opencode",
@@ -1605,6 +1745,17 @@ export class OpenCodeAgentClient implements AgentClient {
 
   async getDiagnostic(): Promise<{ diagnostic: string }> {
     try {
+      if (this.runtimeSettings?.serverUrl) {
+        const url = normalizeOpenCodeServerUrl(this.runtimeSettings.serverUrl);
+        const available = await checkExternalOpenCodeServer(url, this.serverHeaders);
+        return {
+          diagnostic: formatProviderDiagnostic("OpenCode", [
+            { label: "Server", value: `External (${url})` },
+            { label: "Status", value: available ? "Available" : "Unavailable" },
+            { label: "Auth", value: this.serverHeaders ? "Basic auth configured" : "None" },
+          ]),
+        };
+      }
       const launch = await resolveProviderLaunch({
         commandConfig: this.runtimeSettings?.command,
         defaultBinary: "opencode",
@@ -3190,6 +3341,7 @@ class OpenCodeAgentSession implements AgentSession {
     private readonly agentId?: string,
     private readonly serverUrl?: string,
     private readonly externallyDriven = false,
+    private readonly externalServer = false,
   ) {
     this.config = config;
     this.client = client;
@@ -4397,6 +4549,9 @@ class OpenCodeAgentSession implements AgentSession {
       nativeHandle: this.sessionId,
       metadata: {
         cwd: this.config.cwd,
+        ...(this.externalServer && this.serverUrl
+          ? { openCodeServerUrl: normalizeOpenCodeServerUrl(this.serverUrl) }
+          : {}),
         ...(this.config.modeId ? { modeId: this.config.modeId } : {}),
         ...(this.config.model ? { model: this.config.model } : {}),
       },
@@ -4425,13 +4580,15 @@ class OpenCodeAgentSession implements AgentSession {
       this.eventStreamReady = null;
       this.eventStreamTask = null;
       this.subscribers.clear();
-      await abortOpenCodeSession({
-        client: this.client,
-        sessionId: this.sessionId,
-        directory: this.config.cwd,
-        logger: this.logger,
-      });
-      await this.deleteProviderSessionIfEphemeral();
+      if (!this.externalServer) {
+        await abortOpenCodeSession({
+          client: this.client,
+          sessionId: this.sessionId,
+          directory: this.config.cwd,
+          logger: this.logger,
+        });
+        await this.deleteProviderSessionIfEphemeral();
+      }
       this.turnState = { status: "idle" };
     } finally {
       await this.releaseServer?.();

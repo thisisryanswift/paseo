@@ -1042,6 +1042,20 @@ test("disallowedTools flows through to runtime settings", () => {
   });
 });
 
+test("OpenCode serverUrl flows through to external server diagnostics", async () => {
+  const registry = buildProviderRegistry(logger, {
+    providerOverrides: {
+      opencode: {
+        serverUrl: "http://127.0.0.1:1",
+      },
+    },
+  });
+
+  const { diagnostic } = await registry.opencode.createClient(logger).getDiagnostic!();
+
+  expect(diagnostic).toContain("External (http://127.0.0.1:1)");
+});
+
 test("derived provider inherits and merges disallowedTools from base", () => {
   buildProviderRegistry(logger, {
     providerOverrides: {

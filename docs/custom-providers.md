@@ -363,6 +363,31 @@ Override the command used to launch any provider with the `command` field. This 
 
 The `command` array completely replaces the default command for that provider. The binary must exist on the system — Paseo checks for its availability and will mark the provider as unavailable if not found.
 
+### Attach to an existing OpenCode server
+
+By default, Paseo starts and manages its own `opencode serve` process. To use an independently managed OpenCode server, configure `serverUrl` on the built-in `opencode` provider:
+
+```json
+{
+  "agents": {
+    "providers": {
+      "opencode": {
+        "serverUrl": "http://127.0.0.1:4096",
+        "env": {
+          "OPENCODE_SERVER_USERNAME": "opencode",
+          "OPENCODE_SERVER_PASSWORD": "your-password"
+        }
+      }
+    }
+  }
+}
+```
+
+When `serverUrl` is set, Paseo does not spawn, rotate, or stop `opencode serve`. Closing Paseo detaches from external sessions without aborting or archiving them, so native OpenCode clients can continue using the same server and sessions.
+
+The configured server must see the same absolute workspace paths that Paseo sends in OpenCode requests. `OPENCODE_SERVER_USERNAME` defaults to `opencode` when a password is configured. Credentials are sent with HTTP Basic authentication, so use HTTPS or an encrypted private network such as Tailscale when the server is not on localhost.
+The server URL must not contain credentials, a query string, or a fragment.
+
 ### OMP profiles and Pi-compatible forks
 
 OMP ships as a first-class built-in provider option. It is disabled by default; enable it with:
@@ -680,6 +705,7 @@ Every entry under `agents.providers` accepts these fields:
 | `description`      | `string`                  | No                | Short description shown in the UI                                  |
 | `command`          | `string[]`                | Yes (ACP only)    | Command to spawn the agent process                                 |
 | `env`              | `Record<string, string>`  | No                | Environment variables to set for the agent process                 |
+| `serverUrl`        | `string`                  | No                | Existing OpenCode server URL to attach to instead of spawning one  |
 | `params`           | `Record<string, unknown>` | No                | Provider-specific options such as `supportsMcpServers: false`      |
 | `models`           | `ProviderProfileModel[]`  | No                | Static model list (overrides runtime discovery)                    |
 | `additionalModels` | `ProviderProfileModel[]`  | No                | Static model additions (merged with runtime discovery or `models`) |

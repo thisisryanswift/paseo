@@ -321,6 +321,131 @@ describe("OpenCodeAgentClient adapter smoke tests", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
+  test("external sessions use auth headers, persist endpoint identity, and detach on close", async () => {
+    const cwd = tmpCwd();
+    const runtime = new TestOpenCodeHarness();
+    runtime.server = { port: 4096, url: "http://127.0.0.1:4096" };
+    const openCodeClient = new TestOpenCodeClient();
+    openCodeClient.sessionStatusResponse = {
+      data: { "session-1": { type: "busy" } },
+    };
+    runtime.enqueueClient(openCodeClient);
+    const createClient = vi.fn(runtime.createClient);
+    const client = new OpenCodeAgentClient(
+      logger,
+      {
+        serverUrl: "http://127.0.0.1:4096/",
+        env: { OPENCODE_SERVER_PASSWORD: "secret" },
+      },
+      {
+        serverManager: runtime,
+        createClient,
+      },
+    );
+
+    const session = await client.createSession(buildConfig(cwd), undefined, {
+      persistSession: false,
+    });
+
+    expect(createClient).toHaveBeenCalledWith({
+      baseUrl: "http://127.0.0.1:4096",
+      directory: cwd,
+      headers: {
+        authorization: `Basic ${Buffer.from("opencode:secret").toString("base64")}`,
+      },
+    });
+    expect(session.describePersistence()?.metadata?.openCodeServerUrl).toBe(
+      "http://127.0.0.1:4096",
+    );
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((event) => events.push(event));
+    await vi.waitFor(() => {
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: "turn_started", turnId: "opencode-turn-0" }),
+      );
+    });
+
+    await session.close();
+
+    expect(openCodeClient.calls.sessionAbort).toEqual([]);
+    expect(openCodeClient.calls.sessionUpdate).toEqual([]);
+    expect(openCodeClient.calls.sessionDelete).toEqual([]);
+    expect(runtime.acquisitions[0]?.releaseCount).toBe(1);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("resume rejects a handle without external server identity", async () => {
+    const client = new OpenCodeAgentClient(logger, {
+      serverUrl: "http://127.0.0.1:4096",
+    });
+
+    await expect(
+      client.resumeSession({
+        provider: "opencode",
+        sessionId: "session-1",
+        metadata: { cwd: "/tmp/project" },
+      }),
+    ).rejects.toThrow("does not identify its original OpenCode server");
+  });
+
+  test("resume rejects a persisted external server mismatch", async () => {
+    const client = new OpenCodeAgentClient(logger, {
+      serverUrl: "http://127.0.0.1:4096",
+    });
+
+    await expect(
+      client.resumeSession({
+        provider: "opencode",
+        sessionId: "session-1",
+        metadata: {
+          cwd: "/tmp/project",
+          openCodeServerUrl: "http://127.0.0.1:5096",
+        },
+      }),
+    ).rejects.toThrow("belongs to a different OpenCode server");
+  });
+
+  test("external archive hooks authenticate and validate endpoint identity", async () => {
+    const cwd = tmpCwd();
+    const runtime = new TestOpenCodeHarness();
+    runtime.server = { port: 4096, url: "http://127.0.0.1:4096" };
+    const archiveClient = new TestOpenCodeClient();
+    runtime.enqueueClient(archiveClient);
+    const createClient = vi.fn(runtime.createClient);
+    const client = new OpenCodeAgentClient(
+      logger,
+      {
+        serverUrl: "http://127.0.0.1:4096/",
+        env: { OPENCODE_SERVER_PASSWORD: "secret" },
+      },
+      { serverManager: runtime, createClient },
+    );
+    const handle = {
+      provider: "opencode" as const,
+      sessionId: "session-1",
+      metadata: { cwd, openCodeServerUrl: "http://127.0.0.1:4096" },
+    };
+
+    await client.archiveNativeSession(handle);
+
+    expect(createClient).toHaveBeenCalledWith({
+      baseUrl: "http://127.0.0.1:4096",
+      directory: cwd,
+      headers: {
+        authorization: `Basic ${Buffer.from("opencode:secret").toString("base64")}`,
+      },
+    });
+    await expect(
+      client.unarchiveNativeSession({
+        ...handle,
+        metadata: { cwd, openCodeServerUrl: "http://127.0.0.1:5096" },
+      }),
+    ).rejects.toThrow("belongs to a different OpenCode server");
+    expect(runtime.acquisitions).toHaveLength(1);
+    expect(runtime.acquisitions[0]?.releaseCount).toBe(1);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
   test("single turn completes with streaming deltas", async () => {
     const cwd = tmpCwd();
     const runtime = new TestOpenCodeHarness();
@@ -544,6 +669,40 @@ describe("OpenCodeAgentClient adapter smoke tests", () => {
     expect(openCodeClient.calls.providerList).toEqual([{ directory: opencodeHome }]);
     rmSync(paseoHome, { recursive: true, force: true });
   }, 60_000);
+
+  test("fetchCatalog uses the shared temporary directory for an external server", async () => {
+    const runtime = new TestOpenCodeHarness();
+    const openCodeClient = new TestOpenCodeClient();
+    openCodeClient.providerListResponse = {
+      data: {
+        connected: ["test"],
+        all: [
+          {
+            id: "test",
+            name: "Test",
+            source: "api",
+            models: { model: { name: "Model" } },
+          },
+        ],
+      },
+    };
+    runtime.enqueueClient(openCodeClient);
+    const client = new OpenCodeAgentClient(
+      logger,
+      { serverUrl: "http://127.0.0.1:4097" },
+      {
+        serverManager: runtime,
+        createClient: runtime.createClient,
+        resolveHomeDir: () => {
+          throw new Error("external catalog must not resolve the private OpenCode home");
+        },
+      },
+    );
+
+    await client.fetchCatalog({ scope: "global", force: false });
+
+    expect(openCodeClient.calls.providerList).toEqual([{ directory: os.tmpdir() }]);
+  });
 
   test("fetchCatalog releases the acquired server when opencode-home cannot be created", async () => {
     const runtime = new TestOpenCodeHarness();
@@ -3167,6 +3326,41 @@ describe("OpenCode persisted sessions", () => {
     expect(resumedClient.calls.sessionMessages).toEqual([
       { sessionID: "ses_selected", directory: cwd },
     ]);
+  });
+
+  test("importSession records external server identity before resume", async () => {
+    const runtime = new TestOpenCodeHarness();
+    runtime.server = { port: 4096, url: "http://127.0.0.1:4096" };
+    const metadataClient = new TestOpenCodeClient();
+    const resumedClient = new TestOpenCodeClient();
+    const cwd = "/workspace/repo";
+    const selectedSession = {
+      id: "ses_external",
+      directory: cwd,
+      title: "External session",
+      time: { created: 2000, updated: 3000 },
+    };
+    metadataClient.sessionGetResponse = { data: selectedSession };
+    metadataClient.sessionMessagesResponse = { data: [] };
+    resumedClient.sessionMessagesResponse = { data: [] };
+    runtime.enqueueClient(metadataClient);
+    runtime.enqueueClient(resumedClient);
+
+    const client = new OpenCodeAgentClient(
+      createTestLogger(),
+      { serverUrl: "http://127.0.0.1:4096/" },
+      { serverManager: runtime, createClient: runtime.createClient },
+    );
+    const imported = await client.importSession(
+      { providerHandleId: "ses_external", cwd },
+      {
+        config: { provider: "opencode", cwd },
+        storedConfig: { provider: "opencode", cwd },
+      },
+    );
+
+    expect(imported.persistence.metadata?.openCodeServerUrl).toBe("http://127.0.0.1:4096");
+    await imported.session.close();
   });
 
   test("listImportableSessions matches Windows cwd paths with forward slashes", async () => {

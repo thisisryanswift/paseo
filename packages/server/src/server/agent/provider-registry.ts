@@ -252,7 +252,7 @@ function getProviderClientFactory(provider: string): ProviderClientFactory {
 }
 
 function toRuntimeSettings(override?: ProviderOverride): ProviderRuntimeSettings | undefined {
-  if (!override?.command && !override?.env && !override?.disallowedTools) {
+  if (!override?.command && !override?.env && !override?.serverUrl && !override?.disallowedTools) {
     return undefined;
   }
 
@@ -264,8 +264,29 @@ function toRuntimeSettings(override?: ProviderOverride): ProviderRuntimeSettings
         }
       : undefined,
     env: override.env,
+    serverUrl: override.serverUrl,
     disallowedTools: override.disallowedTools,
   };
+}
+
+function mergeProviderEnv(
+  base: ProviderRuntimeSettings | undefined,
+  override: ProviderRuntimeSettings | undefined,
+): Record<string, string> | undefined {
+  if (!base?.env && !override?.env) {
+    return undefined;
+  }
+  return { ...base?.env, ...override?.env };
+}
+
+function mergeDisallowedTools(
+  base: ProviderRuntimeSettings | undefined,
+  override: ProviderRuntimeSettings | undefined,
+): string[] | undefined {
+  if (!base?.disallowedTools && !override?.disallowedTools) {
+    return undefined;
+  }
+  return [...(base?.disallowedTools ?? []), ...(override?.disallowedTools ?? [])];
 }
 
 function mergeRuntimeSettings(
@@ -278,17 +299,9 @@ function mergeRuntimeSettings(
 
   return {
     command: override?.command ?? base?.command,
-    env:
-      base?.env || override?.env
-        ? {
-            ...base?.env,
-            ...override?.env,
-          }
-        : undefined,
-    disallowedTools:
-      base?.disallowedTools || override?.disallowedTools
-        ? [...(base?.disallowedTools ?? []), ...(override?.disallowedTools ?? [])]
-        : undefined,
+    env: mergeProviderEnv(base, override),
+    serverUrl: override?.serverUrl ?? base?.serverUrl,
+    disallowedTools: mergeDisallowedTools(base, override),
   };
 }
 

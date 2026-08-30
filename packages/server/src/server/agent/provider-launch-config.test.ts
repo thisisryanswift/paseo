@@ -274,14 +274,37 @@ describe("ProviderOverrideSchema", () => {
       env: {
         FOO: "bar",
       },
+      serverUrl: "https://opencode.example.test",
       enabled: false,
       order: 2,
     });
 
     expect(parsed.command).toEqual(["custom-claude", "--json"]);
     expect(parsed.env?.FOO).toBe("bar");
+    expect(parsed.serverUrl).toBe("https://opencode.example.test");
     expect(parsed.enabled).toBe(false);
     expect(parsed.order).toBe(2);
+  });
+
+  test("rejects non-HTTP provider server URLs", () => {
+    expect(() => ProviderOverrideSchema.parse({ serverUrl: "ws://opencode.example.test" })).toThrow(
+      "Server URL must use http or https",
+    );
+  });
+
+  test("rejects credentials embedded in provider server URLs", () => {
+    expect(() =>
+      ProviderOverrideSchema.parse({ serverUrl: "https://user:secret@opencode.example.test" }),
+    ).toThrow("must not contain credentials");
+  });
+
+  test("rejects query and fragment components in provider server URLs", () => {
+    expect(() =>
+      ProviderOverrideSchema.parse({ serverUrl: "https://opencode.example.test?tenant=one" }),
+    ).toThrow("must not contain credentials, a query, or a fragment");
+    expect(() =>
+      ProviderOverrideSchema.parse({ serverUrl: "https://opencode.example.test#server" }),
+    ).toThrow("must not contain credentials, a query, or a fragment");
   });
 
   test("accepts models with thinking options", () => {
@@ -367,6 +390,19 @@ describe("migrateProviderSettings", () => {
         command: ["docker", "run", "--rm", "claude"],
       },
     });
+  });
+
+  test("preserves serverUrl from legacy runtime settings", () => {
+    const migrated = migrateProviderSettings(
+      {
+        opencode: {
+          serverUrl: "http://127.0.0.1:4096",
+        },
+      },
+      builtinProviderIds,
+    );
+
+    expect(migrated.opencode?.serverUrl).toBe("http://127.0.0.1:4096");
   });
 
   test("migrates mode default by dropping command", () => {

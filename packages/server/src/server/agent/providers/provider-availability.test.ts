@@ -1,4 +1,5 @@
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -114,6 +115,43 @@ describe("default provider availability", () => {
     const client = new OpenCodeAgentClient(createTestLogger());
 
     await expect(client.isAvailable()).resolves.toBe(false);
+  });
+
+  test("OpenCode authenticates an external server health check", async () => {
+    let authorization: string | undefined;
+    const server = createServer((request, response) => {
+      authorization = request.headers.authorization;
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ healthy: true, version: "1.14.46" }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected TCP test server address");
+    }
+
+    try {
+      const client = new OpenCodeAgentClient(createTestLogger(), {
+        serverUrl: `http://127.0.0.1:${address.port}`,
+        env: {
+          OPENCODE_SERVER_USERNAME: "paseo",
+          OPENCODE_SERVER_PASSWORD: "secret",
+        },
+      });
+
+      await expect(client.isAvailable()).resolves.toBe(true);
+      expect(authorization).toBe(`Basic ${Buffer.from("paseo:secret").toString("base64")}`);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    }
   });
 
   test("AgentManager reports Codex unavailable without throwing", async () => {
