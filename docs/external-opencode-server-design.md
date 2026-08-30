@@ -32,7 +32,7 @@ Persisted OpenCode handles must identify the external endpoint sufficiently to p
 
 ## Session Catalog
 
-OpenCode remains the durable source of truth for native sessions and transcripts. Paseo's Sessions screen is the operational inbox: it reads recent, non-imported root sessions from each connected OpenCode provider and displays them as **Available in OpenCode** alongside Paseo's own history.
+OpenCode remains the durable source of truth for native sessions and transcripts. Paseo's Sessions screen is the operational inbox for the configured built-in `opencode` provider: it reads recent, non-imported root sessions and displays them as **Available in OpenCode** alongside Paseo's own history. Custom providers that extend `opencode` are not included in this inbox.
 
 Catalog rows are read-through data. Listing them must not create Paseo agents, workspaces, or event subscriptions. Opening a row lazily imports the native handle through the existing provider import path and navigates to the resulting Paseo agent. The provider listing already excludes sessions with an active Paseo record, so an opened session moves from the read-through section into normal Paseo history without duplicate rows.
 
@@ -48,7 +48,13 @@ The OpenCode client constructor selects the external manager when `serverUrl` is
 
 OpenCode runs as a persistent service with Basic auth and a Tailscale-reachable listener. Paseo runs as a separate persistent service, connects to that same OpenCode server through localhost, and exposes its own password-protected endpoint on Reef's Tailscale address.
 
-Running both services under the same Unix account is the simplest way to share provider credentials, OpenCode state, repository permissions, Git configuration, and absolute paths. Separate service accounts are also supported when both can access every workspace path; global catalog discovery uses the host's shared temporary directory so it does not require access to Paseo's private home. Tailscale ACLs and the host firewall restrict both ports to the intended user and devices.
+Running both services under the same Unix account is the simplest way to share provider credentials, OpenCode state, repository permissions, Git configuration, absolute paths, and uploaded attachments. Separate service accounts are supported when both can access every workspace path and the attachment directory described below; global catalog discovery uses the host's shared temporary directory so it does not require access to Paseo's private home. Tailscale ACLs and the host firewall restrict both ports to the intended user and devices.
+
+### Shared attachment directory
+
+Set `PASEO_UPLOADS_DIR` to an absolute local directory when Paseo and the external OpenCode server run under separate service accounts. Paseo writes attachment files there and sends their absolute paths to OpenCode, which opens those paths as its own service account. The default `$PASEO_HOME/uploads` often sits below a private home directory and is not suitable unless the OpenCode account can traverse and read it.
+
+The Paseo account must be able to create and remove entries in `PASEO_UPLOADS_DIR`. The OpenCode account needs read and directory-traverse access to the root and every newly created upload directory and file. Configure a shared group with a setgid directory and a service umask that preserves group read and traverse permissions, or use default POSIX ACLs that grant the OpenCode account those permissions on new children. Do not grant access only on the root: upload directories and files are created later and must inherit usable permissions. Both services must see the directory at the same absolute path, including across container bind mounts.
 
 ## Error Handling
 

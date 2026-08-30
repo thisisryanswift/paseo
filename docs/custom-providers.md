@@ -388,6 +388,10 @@ When `serverUrl` is set, Paseo does not spawn, rotate, or stop `opencode serve`.
 The configured server must see the same absolute workspace paths that Paseo sends in OpenCode requests. `OPENCODE_SERVER_USERNAME` defaults to `opencode` when a password is configured. Credentials are sent with HTTP Basic authentication, so use HTTPS or an encrypted private network such as Tailscale when the server is not on localhost.
 The server URL must not contain credentials, a query string, or a fragment.
 
+The Sessions inbox reads native sessions only from the built-in `opencode` provider. A custom provider that extends `opencode` does not add another OpenCode inbox source.
+
+If Paseo and OpenCode use separate service accounts, set `PASEO_UPLOADS_DIR` to an absolute attachment directory available at the same path to both services. Paseo needs create and cleanup access; OpenCode needs read and directory-traverse access to new upload children. Use a shared setgid group plus a compatible service umask, or default ACLs that apply to new files and directories. See [External OpenCode Server Design](external-opencode-server-design.md#shared-attachment-directory) for the ownership and path requirements.
+
 ### OMP profiles and Pi-compatible forks
 
 OMP ships as a first-class built-in provider option. It is disabled by default; enable it with:
