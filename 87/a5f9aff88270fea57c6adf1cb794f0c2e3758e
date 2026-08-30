@@ -1,0 +1,30 @@
+CLAUDE.md
+  s_17859b784bcc5b::t_5aed32c70bff41 24-62
+docs/external-opencode-server-design.md
+  s_35930d482296e8::t_40fab6e72d8c47 1-32,41-70,72-86
+  s_17859b784bcc5b::t_de94d34f07ae4c 33-40,71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "87a5f9aff88270fea57c6adf1cb794f0c2e3758e",
+  "prompts": {},
+  "sessions": {
+    "s_17859b784bcc5b": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fac8acb09ffeXqB2pT9LafzPZm",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ryan Swift <git@thisisryanswift.com>"
+    },
+    "s_35930d482296e8": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ffee39d0bffeYX9mf4KOa7XsVl",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ryan Swift <git@thisisryanswift.com>"
+    }
+  }
+}
