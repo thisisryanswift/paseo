@@ -1,0 +1,26 @@
+packages/server/src/server/file-upload/index.test.ts
+  s_35930d482296e8::t_31f80100eb7832 4,17-20,22,32-33
+  s_35930d482296e8::t_c5d71060677552 29,34-51
+  s_35930d482296e8::t_1ebfc0041cbd2f 30-31
+packages/server/src/server/file-upload/index.ts
+  s_35930d482296e8::t_c5d71060677552 2,10,31,37,39,54,111,184
+  s_35930d482296e8::t_31f80100eb7832 38
+  s_35930d482296e8::t_171c4ff4a87be6 112
+  s_35930d482296e8::t_50dc4f68d359f1 36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a2548d0ed26aee1c89fffba6a27be789fec8b1cf",
+  "prompts": {},
+  "sessions": {
+    "s_35930d482296e8": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ffee39d0bffeYX9mf4KOa7XsVl",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ryan Swift <git@thisisryanswift.com>"
+    }
+  }
+}
