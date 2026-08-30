@@ -1,0 +1,90 @@
+packages/server/src/server/agent/providers/opencode-agent.ts
+  s_908716a3f863c2::t_e0a07f77ef1edd 1325-1379,1391,1401,1404-1409,1427,1458-1459,1473-1476,1501,1517-1518,1542-1544,1546-1555,1563-1567,1585,1607,1623,1638-1642,1648-1664,1688-1691,1698,1725-1733,1748-1758,3344,4552-4554,4583-4584
+  s_908716a3f863c2::t_e07ec748e5dddc 1322-1324
+  s_908716a3f863c2::t_dd867d55b21b35 4585-4587
+packages/protocol/src/provider-config.ts
+  s_35930d482296e8::t_171c4ff4a87be6 34-42
+  s_35930d482296e8::t_d0a4c74579efa3 31-33
+  s_35930d482296e8::t_3e4cdd6e202872 43-44
+packages/server/src/server/agent/providers/opencode/external-server-manager.ts
+  s_908716a3f863c2::t_e0a07f77ef1edd 27-50
+  s_908716a3f863c2::t_54b718a92fb7f0 24-26
+  s_908716a3f863c2::t_4753b809de091b 51-53
+docs/custom-providers.md
+  s_35930d482296e8::t_40fab6e72d8c47 366-388,390,708
+  s_35930d482296e8::t_171c4ff4a87be6 389
+packages/website/public/schemas/paseo.config.v1.json
+  s_17859b784bcc5b::t_1306883400c3fe 271-275
+packages/server/src/server/agent/providers/opencode-agent.test.ts
+  s_908716a3f863c2::t_e0a07f77ef1edd 325-327,373-375,380,382,387,389,394,396,404-406,408-448,674,687-688,690-691,693,699-700,705,3332-3333,3339,3342,3349,3353,3356,3359-3360,3364
+  s_908716a3f863c2::t_b492af5de845a3 329-366
+  s_908716a3f863c2::t_44c990dc4b1fde 324
+  s_908716a3f863c2::t_29e3bc1f6a8d85 328
+  s_908716a3f863c2::t_57aaeff0185d4f 367-372
+  s_908716a3f863c2::t_b3dfc22bf886d0 376-379
+  s_908716a3f863c2::t_7f1959d3c57334 381
+  s_908716a3f863c2::t_0f8894f02b2d52 383-386
+  s_908716a3f863c2::t_cf68aa4e272ec6 388
+  s_908716a3f863c2::t_d589bdee3a6cf2 390-393
+  s_908716a3f863c2::t_a126d4b07fd2b9 395
+  s_908716a3f863c2::t_9ed828a2159be8 397-399,401-403
+  s_908716a3f863c2::t_5e47784cbadf24 407
+  s_908716a3f863c2::t_95447e0a264faf 673
+  s_908716a3f863c2::t_dd4c4457aeb3f9 675-677,684-686
+  s_908716a3f863c2::t_cea911b9e248c2 689
+  s_908716a3f863c2::t_8a77bf763a7254 692
+  s_908716a3f863c2::t_8f2d9e03d7a31e 694-698
+  s_908716a3f863c2::t_9859c10f0a0dae 701-704
+  s_908716a3f863c2::t_a94abfcc087396 706
+  s_908716a3f863c2::t_c0d14e9ae03ff0 3331
+  s_908716a3f863c2::t_aba66106396cc8 3334-3338
+  s_908716a3f863c2::t_7309a529ce29a8 3340-3341
+  s_908716a3f863c2::t_69cb0a5e9a2709 3343-3348
+  s_908716a3f863c2::t_5598f872fb419f 3350-3352
+  s_908716a3f863c2::t_202f40360a0802 3354-3355
+  s_908716a3f863c2::t_d681f5a271943e 3357-3358
+  s_908716a3f863c2::t_07677e46b77607 3361-3363
+  s_908716a3f863c2::t_61cd36ce00ab20 3365
+packages/server/src/server/agent/providers/opencode/external-server-manager.test.ts
+  s_908716a3f863c2::t_e0a07f77ef1edd 24-51
+  s_908716a3f863c2::t_a95f5cbb3ffdf8 21-23
+  s_908716a3f863c2::t_d7bae5663c705e 52
+packages/server/src/server/agent/provider-launch-config.test.ts
+  s_35930d482296e8::t_171c4ff4a87be6 291-308,406
+  s_35930d482296e8::t_87aaa61d4cfcd2 289-290
+  s_35930d482296e8::t_d5ee22bc2904ec 309
+  s_35930d482296e8::t_0a0a702b25cde1 403-405
+  s_35930d482296e8::t_55c354945e46f3 407
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fbf25ebc4ec8d1421d5b2c0165e10fb0a1ccf1e5",
+  "prompts": {},
+  "sessions": {
+    "s_17859b784bcc5b": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fac8acb09ffeXqB2pT9LafzPZm",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ryan Swift <git@thisisryanswift.com>"
+    },
+    "s_35930d482296e8": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ffee39d0bffeYX9mf4KOa7XsVl",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ryan Swift <git@thisisryanswift.com>"
+    },
+    "s_908716a3f863c2": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ffd3d692effe7ZZMlvfjQpdBOR",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ryan Swift <git@thisisryanswift.com>"
+    }
+  }
+}
