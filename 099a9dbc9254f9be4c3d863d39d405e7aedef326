@@ -1,0 +1,43 @@
+packages/server/src/server/agent/providers/opencode-agent.test.ts
+  s_df5223e5ea0855::t_671d18e8b6d584 98-108,110-115
+  s_df5223e5ea0855::t_2553908fc03fe8 109
+packages/server/src/server/agent/provider-launch-config.ts
+  s_df5223e5ea0855::t_b26f63d972259a 46,51,82
+  s_df5223e5ea0855::t_f82017a0008ff5 173-175
+  s_df5223e5ea0855::t_98489d2cf3c1f3 36-45
+docs/custom-providers.md
+  s_df5223e5ea0855::t_2c4462e6340ca1 315-332,532
+packages/server/src/server/agent/providers/opencode-agent.ts
+  s_df5223e5ea0855::t_bd66fefefab805 1114-1119
+  s_df5223e5ea0855::t_b26f63d972259a 1095-1098,1104-1109,1128,1151-1154
+  s_df5223e5ea0855::t_4efd9702ca7118 1394-1395
+  s_df5223e5ea0855::t_38841c1dcbddf1 1413
+  s_df5223e5ea0855::t_4ebad81c31e1ab 173,1079-1093,1391-1393
+  s_df5223e5ea0855::t_5f3ffa6593facf 1055-1078
+packages/server/src/server/agent/provider-registry.ts
+  s_df5223e5ea0855::t_4efd9702ca7118 153,165,206
+  s_df5223e5ea0855::t_58cefe12769b23 170-194,205,207
+packages/server/src/server/agent/providers/provider-availability.test.ts
+  s_df5223e5ea0855::t_c3c81d6451047c 146-147,172-173,175-176,178-179
+  s_df5223e5ea0855::t_2553908fc03fe8 2,43-68,148-171,174,177
+packages/server/src/server/agent/provider-launch-config.test.ts
+  s_df5223e5ea0855::t_4cc2fa5576cfd6 289-305
+  s_df5223e5ea0855::t_671d18e8b6d584 128-135
+  s_df5223e5ea0855::t_c3c81d6451047c 116,123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.1",
+  "base_commit_sha": "099a9dbc9254f9be4c3d863d39d405e7aedef326",
+  "prompts": {},
+  "sessions": {
+    "s_df5223e5ea0855": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_1a0c96c03ffeeohJQVm5lTwpvM",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Ryan Swift <ryan@mlh.io>"
+    }
+  }
+}
