@@ -568,9 +568,12 @@ describe("WorkspaceFilesSession", () => {
       throw new Error("expected a file.upload.response message");
     }
     expect(message.payload.error).toBeNull();
-    expect(message.payload.file?.fileName).toBe("notes.txt");
-    expect(readFileSync(join(paseoHome, "uploads", "upload_req-upload", "notes.txt"), "utf8")).toBe(
-      "hello world",
-    );
+    const file = message.payload.file;
+    if (!file) {
+      throw new Error("expected an uploaded file");
+    }
+    expect(file.fileName).toBe("notes.txt");
+    expect(file.path).toBe(join(paseoHome, "uploads", file.id, "notes.txt"));
+    expect(readFileSync(file.path, "utf8")).toBe("hello world");
   });
 });

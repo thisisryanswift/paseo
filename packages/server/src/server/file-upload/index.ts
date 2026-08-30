@@ -1,4 +1,5 @@
 import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { basename, join, resolve } from "node:path";
 
 import { FileTransferOpcode, type FileTransferFrame } from "@getpaseo/protocol/binary-frames/index";
@@ -9,18 +10,19 @@ interface FileUploadStoreOptions {
   paseoHome: string;
   uploadsDirectory?: string;
   staleUploadTimeoutMs?: number;
+  idFactory?: () => string;
 }
 
 interface PendingUpload {
   requestId: string;
   id: string;
-  attempt: number;
   fileName: string;
   mimeType: string;
   size: number;
   path: string;
   receivedBytes: number;
   started: boolean;
+  ownsDirectory: boolean;
   staleTimeout: ReturnType<typeof setTimeout>;
   queue: Promise<void>;
 }
@@ -30,6 +32,7 @@ export class FileUploadStore {
 
   private readonly uploadsDirectory: string;
   private readonly staleUploadTimeoutMs: number;
+  private readonly idFactory: () => string;
   private readonly pending = new Map<string, PendingUpload>();
 
   constructor(options: FileUploadStoreOptions) {
@@ -39,6 +42,7 @@ export class FileUploadStore {
     );
     this.staleUploadTimeoutMs =
       options.staleUploadTimeoutMs ?? FileUploadStore.defaultStaleUploadTimeoutMs;
+    this.idFactory = options.idFactory ?? randomUUID;
   }
 
   beginUpload(request: FileUploadRequest): void {
@@ -49,19 +53,18 @@ export class FileUploadStore {
     }
 
     const fileName = sanitizeFileName(request.fileName);
-    const attempt = existingUpload ? existingUpload.attempt + 1 : 1;
-    const id = buildUploadId(request.requestId, attempt);
+    const id = `upload_${this.idFactory()}`;
     const uploadDir = join(this.uploadsDirectory, id);
     const upload: PendingUpload = {
       requestId: request.requestId,
       id,
-      attempt,
       fileName,
       mimeType: request.mimeType,
       size: request.size,
       path: join(uploadDir, fileName),
       receivedBytes: 0,
       started: false,
+      ownsDirectory: false,
       staleTimeout: this.createStaleUploadTimeout(request.requestId),
       queue: Promise.resolve(),
     };
@@ -108,7 +111,9 @@ export class FileUploadStore {
   }
 
   private async startWriting(upload: PendingUpload): Promise<void> {
-    await mkdir(join(this.uploadsDirectory, upload.id), { recursive: true });
+    await mkdir(this.uploadsDirectory, { recursive: true });
+    await mkdir(join(this.uploadsDirectory, upload.id));
+    upload.ownsDirectory = true;
     await writeFile(upload.path, new Uint8Array(), { flag: "wx" });
     upload.started = true;
   }
@@ -181,6 +186,10 @@ export class FileUploadStore {
   }
 
   private async removeUploadDirectory(upload: PendingUpload): Promise<void> {
+    if (!upload.ownsDirectory) {
+      return;
+    }
+    upload.ownsDirectory = false;
     await rm(join(this.uploadsDirectory, upload.id), { recursive: true, force: true }).catch(
       () => undefined,
     );
@@ -205,15 +214,6 @@ function buildUploadResponse(upload: PendingUpload, error: string | null): FileU
       error,
     },
   };
-}
-
-function sanitizeUploadId(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "_") || "file";
-}
-
-function buildUploadId(requestId: string, attempt: number): string {
-  const baseId = `upload_${sanitizeUploadId(requestId)}`;
-  return attempt === 1 ? baseId : `${baseId}_${attempt}`;
 }
 
 function sanitizeFileName(value: string): string {
