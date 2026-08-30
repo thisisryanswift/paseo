@@ -9004,6 +9004,13 @@ class RecordingPersistedAgentsClient implements AgentClient {
   }
 }
 
+class FailingPersistedAgentsClient extends RecordingPersistedAgentsClient {
+  override async listImportableSessions(): Promise<never> {
+    this.calls += 1;
+    throw new Error(`failed to list ${this.provider} sessions`);
+  }
+}
+
 test.each([
   [
     "disabled",
@@ -9071,6 +9078,43 @@ test("listImportableSessions narrows to the providerFilter when supplied", async
   expect(claudeClient.calls).toBe(1);
   expect(codexClient.calls).toBe(0);
   expect(result.map((d) => d.provider)).toEqual(["claude"]);
+});
+
+test("listImportableSessions propagates a filtered single-provider failure", async () => {
+  const opencodeClient = new FailingPersistedAgentsClient("opencode");
+  const manager = new AgentManager({
+    clients: { opencode: opencodeClient },
+    providerDefinitions: {
+      opencode: { enabled: true, derivedFromProviderId: null },
+    },
+    logger,
+  });
+
+  await expect(
+    manager.listImportableSessions({ providerFilter: new Set(["opencode"]) }),
+  ).rejects.toThrow("failed to list opencode sessions");
+  expect(opencodeClient.calls).toBe(1);
+});
+
+test("listImportableSessions preserves partial results for multi-provider fan-out", async () => {
+  const claudeClient = new RecordingPersistedAgentsClient("claude");
+  const opencodeClient = new FailingPersistedAgentsClient("opencode");
+  const manager = new AgentManager({
+    clients: { claude: claudeClient, opencode: opencodeClient },
+    providerDefinitions: {
+      claude: { enabled: true, derivedFromProviderId: null },
+      opencode: { enabled: true, derivedFromProviderId: null },
+    },
+    logger,
+  });
+
+  const result = await manager.listImportableSessions({
+    providerFilter: new Set(["claude", "opencode"]),
+  });
+
+  expect(claudeClient.calls).toBe(1);
+  expect(opencodeClient.calls).toBe(1);
+  expect(result.map((descriptor) => descriptor.provider)).toEqual(["claude"]);
 });
 
 test("listImportableSessions skips providers that lack supportsSessionListing even when row listing is defined", async () => {

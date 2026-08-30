@@ -906,6 +906,9 @@ export class AgentManager {
             { err: error, provider },
             "Failed to list importable sessions for provider",
           );
+          if (options?.providerFilter?.size === 1) {
+            throw error;
+          }
           return [];
         }
       }),
