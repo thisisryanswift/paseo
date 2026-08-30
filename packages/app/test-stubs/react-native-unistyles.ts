@@ -10,11 +10,13 @@ const testTheme = {
     surface1: "#fafafa",
     surface2: "#f4f4f5",
     border: "#e4e4e7",
+    palette: { red: { 300: "#dc2626" } },
   },
   spacing: [0, 4, 8, 12, 16, 20, 24, 28, 32],
   fontSize: {
     xs: 12,
     sm: 14,
+    base: 16,
   },
   fontWeight: {
     normal: "400",
@@ -23,7 +25,11 @@ const testTheme = {
   borderRadius: {
     base: 4,
     md: 6,
+    lg: 8,
   },
+  borderWidth: [0, 1],
+  iconSize: { md: 20 },
+  opacity: { 50: 0.5 },
 };
 
 type StyleFactory<T> = (theme: typeof testTheme) => T;
