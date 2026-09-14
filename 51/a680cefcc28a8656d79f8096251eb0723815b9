@@ -1,0 +1,100 @@
+docs/external-opencode-server-design.md
+  h_27acbbe5b3d56e 33-46,61-144,182-184
+packages/server/src/server/agent/agent-manager.opencode-observation.test.ts
+  h_27acbbe5b3d56e 1-1286
+packages/server/src/server/agent/agent-manager.ts
+  h_27acbbe5b3d56e 50-58,60-65,110-138,229,311,698-705,707-710,730,808-810,901-918,966-984,1156,1419,1459,1546,1565,1578-1583,2113,2226,2231-2232,2235-2240,2275-2299,2301,2303-2339,2341-2365,2376-2388,2390-2397,2466,2474,2483-2499,2566,2569,2575,2586,2738-2747,2749-2750,2755-2759,2772,2804,2864-2867,2918-2919,2922,3238-3244,3443,3457-3459,3461-3476,3478-3614,3618,3630-3635,3644,3814,3821,4158,4414,4466-4469,4552-4558,4624-4627,4633,4662-4673,4728-4729,4732,4747-4748,4751,4761-4763,4772-4811,4911,4943-4944
+packages/server/src/server/agent/agent-prompt-handle.ts
+  h_27acbbe5b3d56e 1-91
+packages/server/src/server/agent/agent-prompt.ts
+  h_27acbbe5b3d56e 2,13-24,34,45,47-51,54,68,70-74,81,115-136,176-177,228,245-248,252-255,260,287,299,349,378,390-391,405-407,417,426-442,476
+packages/server/src/server/agent/agent-sdk-types.ts
+  h_27acbbe5b3d56e 9-12,187-190,219-220,227-247,599-600,667-668,732-735
+packages/server/src/server/agent/agent-storage.ts
+  h_27acbbe5b3d56e 12,103,134,140-145,151-162
+packages/server/src/server/agent/agent-timeline-store-types.ts
+  h_27acbbe5b3d56e 47-48,65-72
+packages/server/src/server/agent/external-opencode-admission.test.ts
+  h_27acbbe5b3d56e 1-389
+packages/server/src/server/agent/external-opencode-admission.ts
+  h_27acbbe5b3d56e 1-44
+packages/server/src/server/agent/external-opencode-adoption.test.ts
+  h_27acbbe5b3d56e 1-615
+packages/server/src/server/agent/external-opencode-adoption.ts
+  h_27acbbe5b3d56e 1-384
+packages/server/src/server/agent/external-opencode-pilot.test.ts
+  h_27acbbe5b3d56e 1-786
+packages/server/src/server/agent/external-opencode-types.ts
+  h_27acbbe5b3d56e 1-79
+packages/server/src/server/agent/import-sessions.test.ts
+  h_27acbbe5b3d56e 519-592
+packages/server/src/server/agent/import-sessions.ts
+  h_27acbbe5b3d56e 23,30,67-68,153-161,188-200,206-210,223,391-397,416-420,422
+packages/server/src/server/agent/native-history-replacement.ts
+  h_27acbbe5b3d56e 1-52
+packages/server/src/server/agent/provider-registry.ts
+  h_27acbbe5b3d56e 45-46,462,486-497,501,515
+packages/server/src/server/agent/providers/opencode-agent.admission.test.ts
+  h_27acbbe5b3d56e 1-613
+packages/server/src/server/agent/providers/opencode-agent.external-sessions.test.ts
+  h_27acbbe5b3d56e 1-497
+packages/server/src/server/agent/providers/opencode-agent.history-attachments.test.ts
+  h_27acbbe5b3d56e 1-123
+packages/server/src/server/agent/providers/opencode-agent.recovery.test.ts
+  h_27acbbe5b3d56e 1-539
+packages/server/src/server/agent/providers/opencode-agent.submission-outcome.test.ts
+  h_27acbbe5b3d56e 1-344
+packages/server/src/server/agent/providers/opencode-agent.test.ts
+  h_27acbbe5b3d56e 1437,1439,1546,1548,1572,1589,1592-1595,2190,2596,2616,2624,2634-2635,3456,3526,4336,4490
+packages/server/src/server/agent/providers/opencode-agent.ts
+  h_27acbbe5b3d56e 23,86-106,134,1149,1151-1154,1157-1159,1212,1216-1224,1235-1236,1262-1269,1330,1433,1453,1502,1562-1567,1666-1692,2082,2084-2086,3107-3112,3119,3123,3125,3129,3200,3207-3216,3365,3376-3381,3390,3412-3431,3442,3467-3468,3470-3473,3483,3503-3506,3512-3514,3518-3525,3527-3528,3538-3539,3555,3689-3690,3716-3721,3723,3725-3777,3785,3796,3799-3814,3817-3823,3827-3846,3848-3858,3862,3876-3882,3886-4133,4135-4139,4141-4150,4157-4194,4196-4215,4219,4221-4337,4339-4363,4365-4384,4386-4458,4614-4619,4628-4631,4685-4686,4688-4756,4758-4759,4766,4780,4783-4786,4789-4790,4792,4834-4990,5039,5064-5069,5078,5097,5173,5250,5258-5294,5322-5323,5361,5365,5381,5386,5389-5390,5395,5401,5403-5404,5414,5420-5422,5434-5436,5438-5442,5456-5457,5515,5525-5526,5529,5549-5550,5562,5567,5575-5578,5581,5586-5591,5593-5600,5828,5841,5866,5871
+packages/server/src/server/agent/providers/opencode/event-consumer.test.ts
+  h_27acbbe5b3d56e 1-93
+packages/server/src/server/agent/providers/opencode/event-consumer.ts
+  h_27acbbe5b3d56e 1-116
+packages/server/src/server/agent/providers/opencode/external-session-metadata.ts
+  h_27acbbe5b3d56e 1-332
+packages/server/src/server/agent/providers/opencode/native-history.ts
+  h_27acbbe5b3d56e 1-42
+packages/server/src/server/agent/providers/opencode/native-submissions.ts
+  h_27acbbe5b3d56e 1-89
+packages/server/src/server/agent/providers/opencode/test-utils/manual-observation-timing.ts
+  h_27acbbe5b3d56e 1-63
+packages/server/src/server/agent/providers/opencode/test-utils/test-opencode-harness.ts
+  h_27acbbe5b3d56e 8,77,80,83,86,91,94,100,102,105,114-116,118,120-122,124-126,129-130,140,146-148,157-159,162-164,169-171,196,198-201,212,214-217,224-226,228-236,238,243,245-248,256-261,277-280,297,299-301,329,331-334,336,338-340,352,354-356
+packages/server/src/server/agent/providers/opencode/turn-admission.ts
+  h_27acbbe5b3d56e 1-64
+packages/server/src/server/agent/session-enrollment.test.ts
+  h_27acbbe5b3d56e 1-70
+packages/server/src/server/agent/session-enrollment.ts
+  h_27acbbe5b3d56e 1-76
+packages/server/src/server/agent/tools/paseo-tools.ts
+  h_27acbbe5b3d56e 6,62,64,99,152-178,1131-1136,1917,1923,1929,1935,1946-1950,1953
+packages/server/src/server/bootstrap.ts
+  h_27acbbe5b3d56e 12-13,432,837,866-875,1619,1631
+packages/server/src/server/config.test.ts
+  h_27acbbe5b3d56e 42-84
+packages/server/src/server/config.ts
+  h_27acbbe5b3d56e 167,182,561
+packages/server/src/server/persisted-config.ts
+  h_27acbbe5b3d56e 224-225,315
+packages/server/src/server/session.ts
+  h_27acbbe5b3d56e 1536-1539,1676-1744,6752,6760,6778
+packages/server/src/server/session/workspace-provisioning/workspace-provisioning-service.ts
+  h_27acbbe5b3d56e 30-31,102-121,151-152
+packages/server/src/server/workspace-registry.test.ts
+  h_27acbbe5b3d56e 213-293
+packages/server/src/server/workspace-registry.ts
+  h_27acbbe5b3d56e 174-175,209,214-215,220-222,226-232,240-246,250-255,264-268,272-278,280-281,286,292,295,299-313,348-351,362-363,368-370,375,385-386,388-395,397
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "51a680cefcc28a8656d79f8096251eb0723815b9",
+  "prompts": {},
+  "humans": {
+    "h_27acbbe5b3d56e": {
+      "author": "Ryan Swift <git@thisisryanswift.com>"
+    }
+  }
+}
