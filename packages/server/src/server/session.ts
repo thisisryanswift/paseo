@@ -1533,6 +1533,10 @@ export class Session {
 
     this.unsubscribeAgentEvents = this.agentManager.subscribe(
       (event) => {
+        if (event.type === "agent_timeline_reset") {
+          this.forwardNativeTimeline(event.agentId);
+          return;
+        }
         if (event.type === "agent_state") {
           this.sessionLogger.trace(
             {
@@ -1667,6 +1671,75 @@ export class Session {
         "Failed to emit provider subagent workspace update",
       );
     });
+  }
+
+  private forwardNativeTimeline(agentId: string): void {
+    // Reuse the existing atomic projected-page reducer, including its epoch and local submission
+    // reconciliation. A synthetic timeline row cannot signal an empty replacement correctly.
+    const agent = this.agentManager.getAgent(agentId);
+    if (!agent) return;
+    const controlTimeline = this.agentManager.fetchTimeline(agentId, {
+      direction: "tail",
+      limit: 200,
+    });
+    const selected = this.selectTimelineProjection({
+      agentId,
+      projection: "projected",
+      controlTimeline,
+      direction: "tail",
+      pageLimit: 200,
+    });
+    const epoch = selected.timeline.epoch;
+    const send = (source?: object) => {
+      const reasoningMerge = source
+        ? this.supportsForSource(CLIENT_CAPS.reasoningMergeEnum, source)
+        : this.supports(CLIENT_CAPS.reasoningMergeEnum);
+      this.emitForSource(
+        {
+          type: "fetch_agent_timeline_response",
+          payload: {
+            requestId: `native-history:${epoch}`,
+            agentId,
+            agent: null,
+            direction: "tail",
+            projection: "projected",
+            epoch,
+            reset: true,
+            staleCursor: false,
+            gap: false,
+            window: selected.timeline.window,
+            startCursor: selected.startSeq === null ? null : { epoch, seq: selected.startSeq },
+            endCursor: selected.endSeq === null ? null : { epoch, seq: selected.endSeq },
+            hasOlder: selected.hasOlder,
+            hasNewer: selected.hasNewer,
+            entries: selected.entries.map((entry) => ({
+              item: entry.item,
+              timestamp: entry.timestamp,
+              seqStart: entry.seqStart,
+              seqEnd: entry.seqEnd,
+              sourceSeqRanges: entry.sourceSeqRanges,
+              provider: agent.provider,
+              collapsed: reasoningMerge
+                ? entry.collapsed
+                : entry.collapsed.filter((value) => value !== "reasoning_merge"),
+            })),
+            error: null,
+          },
+        },
+        source,
+      );
+    };
+    if (this.clientCapabilitiesBySource.size === 0 || !this.onMessageToSource) {
+      if (!this.usesSelectiveTimelineDelivery() || this.viewedTimelineAgentIds.has(agentId)) send();
+      return;
+    }
+    for (const [source, capabilities] of this.clientCapabilitiesBySource) {
+      if (
+        !capabilities.has(CLIENT_CAPS.selectiveAgentTimeline) ||
+        this.viewedTimelineAgentIdsBySource.get(source)?.has(agentId)
+      )
+        send(source);
+    }
   }
 
   private buildAgentStreamPayload(
@@ -6676,7 +6749,7 @@ export class Session {
         },
         "agent.session.send_agent_message",
       );
-      let dispatchResult: { outOfBand: boolean };
+      let dispatchResult: Awaited<ReturnType<typeof sendPromptToAgent>>;
       try {
         dispatchResult = await sendPromptToAgent({
           agentManager: this.agentManager,
@@ -6684,6 +6757,7 @@ export class Session {
           agentId,
           prompt,
           messageId: msg.messageId,
+          fallbackMessageId: msg.requestId,
           logger: this.sessionLogger,
         });
       } catch (error) {
@@ -6701,7 +6775,7 @@ export class Session {
         return;
       }
 
-      if (dispatchResult.outOfBand) {
+      if (dispatchResult.outOfBand || dispatchResult.queued || dispatchResult.accepted) {
         this.emit({
           type: "send_agent_message_response",
           payload: {

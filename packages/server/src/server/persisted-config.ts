@@ -221,6 +221,8 @@ function normalizeAgentProviders(value: unknown): unknown {
   };
 }
 
+import { ExternalOpenCodeAdoptionConfigSchema } from "./agent/external-opencode-types.js";
+
 export const PersistedConfigSchema = z
   .object({
     $schema: z.string().optional(),
@@ -310,6 +312,7 @@ export const PersistedConfigSchema = z
         providers: z.preprocess(normalizeAgentProviders, ProviderOverridesSchema).optional(),
         catalogRefreshTimeoutMs: z.number().int().positive().max(2_147_483_647).optional(),
         metadataGeneration: AgentMetadataGenerationSchema.optional(),
+        externalOpenCodeAdoption: ExternalOpenCodeAdoptionConfigSchema.optional(),
       })
       .strict()
       .optional(),

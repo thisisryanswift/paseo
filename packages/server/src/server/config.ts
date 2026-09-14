@@ -164,7 +164,7 @@ function extractAgentProviderSettings(
 
   const runtimeSettings = Object.entries(providerOverrides).flatMap(([providerId, provider]) => {
     const parsedProviderId = AgentProviderSchema.safeParse(providerId);
-    if (!parsedProviderId.success || (!provider.command && !provider.env)) {
+    if (!parsedProviderId.success || (!provider.command && !provider.env && !provider.serverUrl)) {
       return [];
     }
 
@@ -179,6 +179,7 @@ function extractAgentProviderSettings(
               }
             : undefined,
           env: provider.env,
+          serverUrl: provider.serverUrl,
         },
       ] as const,
     ];
@@ -557,6 +558,7 @@ export function loadConfig(
     agentProviderSettings: extractAgentProviderSettings(providerOverrides),
     providerCatalogRefreshTimeoutMs: persisted.agents?.catalogRefreshTimeoutMs,
     metadataGeneration: persisted.agents?.metadataGeneration,
+    externalOpenCodeAdoption: persisted.agents?.externalOpenCodeAdoption,
     providerOverrides,
     log: resolveLogConfigFromEnv(env, persisted),
   };

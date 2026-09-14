@@ -9,6 +9,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { Logger } from "pino";
 import { z } from "zod";
 import { createBranchChangeRouteHandler } from "./script-route-branch-handler.js";
+import { createExternalOpenCodeAdoption } from "./agent/external-opencode-adoption.js";
+import type { ExternalOpenCodeAdoptionConfig } from "./agent/external-opencode-types.js";
 
 export type ListenTarget =
   | { type: "tcp"; host: string; port: number }
@@ -427,6 +429,7 @@ export interface PaseoDaemonConfig {
   dictationFinalTimeoutMs?: number;
   downloadTokenTtlMs?: number;
   agentProviderSettings?: AgentProviderRuntimeSettingsMap;
+  externalOpenCodeAdoption?: ExternalOpenCodeAdoptionConfig;
   providerCatalogRefreshTimeoutMs?: number;
   metadataGeneration?: {
     providers?: Array<{
@@ -831,6 +834,7 @@ export async function createPaseoDaemon(
   });
   const initialAgentManagerState = providerSnapshotManager.getAgentManagerProviderState();
   const agentManager = new AgentManager({
+    externalOpenCodeEndpoint: config.agentProviderSettings?.opencode?.serverUrl,
     clients: initialAgentManagerState.clients,
     providerDefinitions: initialAgentManagerState.providerDefinitions,
     registry: agentStorage,
@@ -859,6 +863,16 @@ export async function createPaseoDaemon(
     logger,
   });
   logger.info({ elapsed: elapsed() }, "Workspace registries bootstrapped");
+  const externalOpenCodeAdoption = createExternalOpenCodeAdoption({
+    config: config.externalOpenCodeAdoption,
+    endpoint: agentManager.getExternalOpenCodeEndpoint(),
+    statePath: path.join(config.paseoHome, "external-opencode-adoption.json"),
+    agentStorage,
+    workspaceProvisioning,
+    listSessions: (input) => agentManager.listExternalOpenCodeSessions(input),
+    onAdopted: (record) => agentManager.publishStoredAgent(record),
+    logger,
+  });
   const teardownArchivedWorkspaceRuntime = (workspaceId: string): void => {
     scriptRuntimeStore.removeForWorkspace(workspaceId);
     releaseWorkspaceServicePortPlan(workspaceId);
@@ -1602,6 +1616,7 @@ export async function createPaseoDaemon(
       // model loading doesn't block the server from accepting connections.
       speechService.start();
       scriptHealthMonitor.start();
+      externalOpenCodeAdoption?.start();
     } catch (error) {
       await serviceProxy.stopStandalone().catch(() => undefined);
       if (mainStarted) {
@@ -1613,6 +1628,7 @@ export async function createPaseoDaemon(
   };
 
   const stop = async () => {
+    await externalOpenCodeAdoption?.stop();
     await hubRelationships.stop();
     workspaceReconciliation.dispose();
     scriptHealthMonitor.stop();

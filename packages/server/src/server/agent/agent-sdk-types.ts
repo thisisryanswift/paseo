@@ -6,6 +6,10 @@ import type {
 } from "@getpaseo/protocol/agent-types";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
 import type { PaseoToolCatalog } from "./tools/types.js";
+import type {
+  ListExternalOpenCodeSessionsInput,
+  ExternalOpenCodeSessionPage,
+} from "./external-opencode-types.js";
 
 export type { AgentProviderNotice, AgentTaskItem };
 
@@ -180,6 +184,10 @@ export type AgentFeature = AgentFeatureToggle | AgentFeatureSelect;
 export interface AgentCapabilityFlags {
   [capability: string]: boolean | undefined;
   supportsStreaming: boolean;
+  /** Local asynchronous preparation fence; does not imply native queue support. */
+  supportsAbortableTurnAdmission?: boolean;
+  /** External-session observation uses authoritative history replacement instead of root deltas. */
+  supportsNativeHistoryObservation?: boolean;
   supportsSessionPersistence: boolean;
   supportsSessionListing?: boolean;
   supportsDynamicModes: boolean;
@@ -208,10 +216,33 @@ export type AgentPromptContentBlock =
 export type AgentPromptInput = string | AgentPromptContentBlock[];
 
 export interface AgentRunOptions {
+  /** Runtime-only local fence, not a native admission/abort precondition. */
+  admission?: AgentTurnAdmission;
   outputSchema?: unknown;
   resumeFrom?: AgentPersistenceHandle;
   maxThinkingTokens?: number;
   clientMessageId?: string;
+}
+
+export interface AgentTurnAdmission {
+  id: string;
+  signal: AbortSignal;
+  /** Per-message mode selection, applied only at the admitted native-send boundary. */
+  modeId?: string;
+  assertCurrent(): void;
+  /** Call synchronously immediately before issuing a native prompt/command request. */
+  markRequestSent(): void;
+}
+
+export class AgentTurnAdmissionError extends Error {
+  constructor(
+    readonly disposition: "not_sent" | "uncertain",
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "AgentTurnAdmissionError";
+  }
 }
 
 export interface AgentUsage {
@@ -565,6 +596,8 @@ export interface ImportedProviderSession {
 export interface AgentSessionConfig {
   provider: AgentProvider;
   cwd: string;
+  /** Explicit local D13 send policy. Persisted in the external native resume handle. */
+  externalOpenCodePilot?: boolean;
   /**
    * Provider-agnostic system/developer instruction string.
    * Mapped by each provider to its native instruction field.
@@ -631,6 +664,8 @@ export interface AgentSession {
   startTurn(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<{ turnId: string }>;
   subscribe(callback: (event: AgentStreamEvent) => void): () => void;
   streamHistory(): AsyncGenerator<AgentStreamEvent>;
+  /** Read-only result projection for providers whose root transcript uses snapshot observation. */
+  readTurnTimeline?(turnId: string): Promise<AgentTimelineItem[]>;
   getRuntimeInfo(): Promise<AgentRuntimeInfo>;
   getAvailableModes(): Promise<AgentMode[]>;
   getCurrentMode(): Promise<string | null>;
@@ -694,6 +729,10 @@ export interface ResolveAgentDefaultModeInput {
 }
 
 export interface AgentClient {
+  /** External OpenCode discovery only: no resume, prompt, permission or archive mutations. */
+  listExternalOpenCodeSessions?(
+    input: ListExternalOpenCodeSessionsInput,
+  ): Promise<ExternalOpenCodeSessionPage>;
   readonly provider: AgentProvider;
   readonly capabilities: AgentCapabilityFlags;
   createSession(

@@ -1,4 +1,5 @@
 import type { Logger } from "pino";
+import { randomUUID } from "node:crypto";
 
 import type {
   AgentPermissionRequest,
@@ -9,6 +10,18 @@ import type { AgentManager, ManagedAgent } from "./agent-manager.js";
 import type { AgentStorage } from "./agent-storage.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
 import { getParentAgentIdFromLabels } from "@getpaseo/protocol/agent-labels";
+import { observeAdmittedPrompt, type AgentPromptHandle } from "./agent-prompt-handle.js";
+import {
+  isExternalOpenCodeSession,
+  assertExternalOpenCodeSendAllowed,
+} from "./external-opencode-admission.js";
+
+export interface AgentPromptDispatchResult {
+  outOfBand: boolean;
+  accepted?: boolean;
+  queued?: boolean;
+  followUp?: AgentPromptHandle;
+}
 
 export type AgentUnarchiveController = Pick<AgentManager, "notifyAgentState" | "unarchiveSnapshot">;
 
@@ -18,6 +31,7 @@ export type AgentRunController = Pick<
 >;
 
 export interface StartAgentRunOptions {
+  sessionMode?: string;
   replaceRunning?: boolean;
   runOptions?: AgentRunOptions;
 }
@@ -28,13 +42,16 @@ export async function startAgentRun(
   prompt: AgentPromptInput,
   logger: Logger,
   options?: StartAgentRunOptions,
-): Promise<{ outOfBand: boolean }> {
+): Promise<AgentPromptDispatchResult> {
   const snapshot = agentManager.getAgent(agentId);
+  const logContext = {
+    agentId,
+    provider: snapshot?.provider,
+    providerSessionId: snapshot?.persistence?.sessionId ?? undefined,
+  };
   logger.trace(
     {
-      agentId,
-      provider: snapshot?.provider,
-      providerSessionId: snapshot?.persistence?.sessionId ?? undefined,
+      ...logContext,
       turnId: snapshot?.activeForegroundTurnId ?? undefined,
       promptType: typeof prompt === "string" ? "string" : "structured",
       hasRunOptions: Boolean(options?.runOptions),
@@ -48,16 +65,20 @@ export async function startAgentRun(
   if (agentManager.tryRunOutOfBand(agentId, prompt, options?.runOptions)) {
     return { outOfBand: true };
   }
+  assertExternalOpenCodeSendAllowed(snapshot, agentManager.hasInFlightRun(agentId));
   const shouldReplace = Boolean(options?.replaceRunning && agentManager.hasInFlightRun(agentId));
+  if (isExternalOpenCodeSession(snapshot))
+    return startExternalAgentRun(agentManager, agentId, prompt, {
+      ...options,
+      replaceRunning: shouldReplace,
+    });
   const runOptions = options?.runOptions;
   const iterator = shouldReplace
     ? await agentManager.replaceAgentRun(agentId, prompt, runOptions)
     : agentManager.streamAgent(agentId, prompt, runOptions);
   logger.trace(
     {
-      agentId,
-      provider: snapshot?.provider,
-      providerSessionId: snapshot?.persistence?.sessionId ?? undefined,
+      ...logContext,
       shouldReplace,
     },
     "agent.session.start_stream.iterator_returned",
@@ -89,6 +110,28 @@ export async function startAgentRun(
     }
   })();
   return { outOfBand: false };
+}
+
+async function startExternalAgentRun(
+  agentManager: AgentRunController,
+  agentId: string,
+  prompt: AgentPromptInput,
+  options: StartAgentRunOptions,
+): Promise<AgentPromptDispatchResult> {
+  const messageId = options.runOptions?.clientMessageId ?? randomUUID();
+  const runOptions = { ...options.runOptions, clientMessageId: messageId };
+  const iterator = options.replaceRunning
+    ? await agentManager.replaceAgentRun(agentId, prompt, runOptions, options.sessionMode)
+    : agentManager.streamAgent(agentId, prompt, runOptions, undefined, options.sessionMode);
+  // Await actual admission so final provider busy/cancellation/error refusal reaches the caller.
+  const admitted = await iterator.next();
+  if (admitted.done) throw new Error("Provider did not admit a turn");
+  const permission = agentManager.getAgent(agentId)?.pendingPermissions.values().next().value;
+  return {
+    outOfBand: false,
+    accepted: true,
+    followUp: observeAdmittedPrompt(messageId, iterator, permission),
+  };
 }
 
 /**
@@ -130,6 +173,8 @@ export interface SendPromptToAgentParams {
   /** Prompt to dispatch to the provider (may include image blocks or wrapped text). */
   prompt: AgentPromptInput;
   messageId?: string;
+  /** Stock-client request identity used only when an external queued send omits messageId. */
+  fallbackMessageId?: string;
   runOptions?: AgentRunOptions;
   /** Optional mode to set on the agent before the run starts. */
   sessionMode?: string;
@@ -180,7 +225,7 @@ export async function waitForAgentRunStartWithTimeout(
  */
 export async function sendPromptToAgent(
   params: SendPromptToAgentParams,
-): Promise<{ outOfBand: boolean }> {
+): Promise<AgentPromptDispatchResult> {
   const unarchive = params.unarchive ?? true;
 
   const record = await params.agentStorage.get(params.agentId);
@@ -197,16 +242,22 @@ export async function sendPromptToAgent(
     logger: params.logger,
   });
 
-  if (params.sessionMode) {
+  if (
+    params.sessionMode &&
+    !isExternalOpenCodeSession(params.agentManager.getAgent(params.agentId))
+  ) {
     await params.agentManager.setAgentMode(params.agentId, params.sessionMode);
   }
 
-  const runOptions = params.messageId
-    ? { ...params.runOptions, clientMessageId: params.messageId }
+  const external = isExternalOpenCodeSession(params.agentManager.getAgent(params.agentId));
+  const messageId = params.messageId ?? (external ? params.fallbackMessageId : undefined);
+  const runOptions = messageId
+    ? { ...params.runOptions, clientMessageId: messageId }
     : params.runOptions;
 
   return await startAgentRun(params.agentManager, params.agentId, params.prompt, params.logger, {
     replaceRunning: true,
+    sessionMode: params.sessionMode,
     runOptions,
   });
 }
@@ -233,7 +284,7 @@ export async function startCreatedAgentInitialPrompt(
     },
   );
 
-  if (!dispatchResult.outOfBand) {
+  if (!dispatchResult.outOfBand && !dispatchResult.accepted) {
     await waitForAgentRunStartWithTimeout(params.agentManager, params.agentId);
   }
 
@@ -245,6 +296,7 @@ export async function startCreatedAgentInitialPrompt(
 }
 
 export interface SetupFinishNotificationParams {
+  followUp?: AgentPromptHandle;
   agentManager: AgentManager;
   agentStorage: AgentStorage;
   childAgentId: string;
@@ -294,6 +346,7 @@ function formatFinishNotificationBody(params: FinishNotificationBodyInput): stri
 }
 
 interface NotifySafelyOptions {
+  lastAssistantMessage?: string | null;
   terminal?: boolean;
   permissionRequest?: AgentPermissionRequest;
 }
@@ -322,6 +375,7 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
   async function notify(
     reason: FinishNotificationReason,
     permissionRequest?: AgentPermissionRequest,
+    message?: string | null,
   ): Promise<void> {
     const callerRecord = await agentStorage.get(callerAgentId);
     if (callerRecord?.archivedAt) {
@@ -333,7 +387,8 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
       return;
     }
     const title = record?.title ?? childAgentId;
-    const lastAssistantMessage = await agentManager.getLastAssistantMessage(childAgentId);
+    const lastAssistantMessage =
+      message === undefined ? await agentManager.getLastAssistantMessage(childAgentId) : message;
     const body = formatFinishNotificationBody({
       childAgentId,
       title,
@@ -347,6 +402,9 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
       agentStorage,
       agentId: callerAgentId,
       prompt: formatSystemNotificationPrompt(body),
+      messageId: params.followUp
+        ? `followup-notification:${childAgentId}:${params.followUp.messageId}:${permissionRequest?.id ?? "terminal"}`
+        : undefined,
       unarchive: false,
       logger,
     });
@@ -356,13 +414,30 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
     if (stopped) return;
     if (options.terminal ?? true) stop();
     notificationQueue = notificationQueue
-      .then(() => notify(reason, options.permissionRequest))
+      .then(() => notify(reason, options.permissionRequest, options.lastAssistantMessage))
       .catch((error) => {
         logger.error(
           { err: error, childAgentId, callerAgentId, reason },
           "Failed to notify caller agent",
         );
       });
+  }
+
+  if (params.followUp) {
+    unsubscribe = params.followUp.subscribe((checkpoint) => {
+      if (checkpoint.status === "permission")
+        notifySafely("needs permission", {
+          terminal: false,
+          permissionRequest: checkpoint.permission,
+          lastAssistantMessage: null,
+        });
+      else
+        notifySafely(checkpoint.status === "completed" ? "finished" : "errored", {
+          lastAssistantMessage: checkpoint.lastMessage ?? checkpoint.error ?? null,
+        });
+    });
+    if (stopped) unsubscribe();
+    return;
   }
 
   unsubscribe = agentManager.subscribe(
@@ -398,6 +473,7 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
         return;
       }
 
+      if (event.type !== "agent_stream") return;
       if (event.event.type === "permission_requested") {
         // A permission pause is an intermediate checkpoint. Forget the run
         // observed before it so an idle state during follow-up startup cannot

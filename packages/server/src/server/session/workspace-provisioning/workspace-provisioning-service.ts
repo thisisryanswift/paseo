@@ -27,6 +27,8 @@ export interface ResolveOrCreateWorkspaceIdInput {
 export interface ImportWorkspaceInput {
   cwd: string;
   requestedWorkspaceId?: string;
+  /** Automatic adoption reuses an unambiguous exact cwd and never restores archives. */
+  reuseExisting?: boolean;
 }
 
 export interface ImportWorkspaceResult<T> {
@@ -97,6 +99,26 @@ export function createWorkspaceProvisioningService(deps: {
     input: ImportWorkspaceInput,
     operation: (workspace: PersistedWorkspaceRecord) => Promise<T>,
   ): Promise<ImportWorkspaceResult<T>> {
+    if (input.reuseExisting && !input.requestedWorkspaceId) {
+      const matches = (await workspaceRegistry.list()).filter((workspace) =>
+        createRealpathAwarePathMatcher(workspace.cwd)(input.cwd),
+      );
+      const active = matches.filter((workspace) => !workspace.archivedAt);
+      if (active.length > 1) throw new Error(`Ambiguous adoption workspace: ${input.cwd}`);
+      if (active.length === 1) {
+        return runInImportWorkspace(
+          { ...input, requestedWorkspaceId: active[0]!.workspaceId },
+          operation,
+        );
+      }
+      if (matches.length > 0) throw new Error(`Adoption workspace is archived: ${input.cwd}`);
+      const projects = (await projectRegistry.list()).filter((project) =>
+        createRealpathAwarePathMatcher(project.rootPath)(input.cwd),
+      );
+      if (projects.length > 0 && projects.every((project) => project.archivedAt)) {
+        throw new Error(`Adoption project is archived: ${input.cwd}`);
+      }
+    }
     if (input.requestedWorkspaceId) {
       const workspace = await workspaceRegistry.get(input.requestedWorkspaceId);
       if (!workspace || workspace.archivedAt) {
@@ -126,7 +148,8 @@ export function createWorkspaceProvisioningService(deps: {
         createdWorkspace: workspace,
       };
     } catch (error) {
-      await rollbackFailedImportWorkspace(workspace, previousProject);
+      // Adoption retries reuse this exact placement after a crash or a failed agent write.
+      if (!input.reuseExisting) await rollbackFailedImportWorkspace(workspace, previousProject);
       throw error;
     }
   }

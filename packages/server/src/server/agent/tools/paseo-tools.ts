@@ -3,7 +3,7 @@ import { ensureValidJson } from "../../json-utils.js";
 import type { Logger } from "pino";
 
 import type { AgentMode, AgentProvider, AgentSessionConfig } from "../agent-sdk-types.js";
-import type { AgentManager } from "../agent-manager.js";
+import type { AgentManager, WaitForAgentResult } from "../agent-manager.js";
 import { AgentProfileSchema } from "@getpaseo/protocol/messages";
 import type { DaemonConfigStore } from "../../daemon-config-store.js";
 import {
@@ -59,7 +59,9 @@ import {
   serializeSnapshotWithMetadata,
   toScheduleSummary,
   waitForAgentWithTimeout,
+  AGENT_WAIT_TIMEOUT_MS,
 } from "../mcp-shared.js";
+import type { AgentPromptHandle } from "../agent-prompt-handle.js";
 import { sendPromptToAgent, setupFinishNotification } from "../agent-prompt.js";
 import { respondToAgentPermission } from "../permission-response.js";
 import {
@@ -94,6 +96,7 @@ import type {
 } from "./types.js";
 
 export interface PaseoToolHostDependencies {
+  dispatchPrompt?: typeof sendPromptToAgent;
   agentManager: AgentManager;
   agentStorage: AgentStorage;
   terminalManager?: TerminalManager | null;
@@ -144,6 +147,33 @@ export interface PaseoToolHostDependencies {
   enableVoiceTools?: boolean;
   voiceOnly?: boolean;
   logger: Logger;
+}
+
+async function waitForFollowUp(handle: AgentPromptHandle): Promise<WaitForAgentResult> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const checkpoint = await Promise.race([
+      handle.result,
+      new Promise<null>((resolve) => {
+        timeout = setTimeout(() => resolve(null), AGENT_WAIT_TIMEOUT_MS);
+      }),
+    ]);
+    if (!checkpoint)
+      return {
+        status: "running",
+        permission: null,
+        lastMessage: `Follow-up ${handle.messageId} is still queued or running after ${AGENT_WAIT_TIMEOUT_MS / 1000}s; this is not a completion.`,
+      };
+    if (checkpoint.status === "permission")
+      return { status: "running", permission: checkpoint.permission, lastMessage: null };
+    return {
+      status: checkpoint.status === "completed" ? "idle" : "error",
+      permission: null,
+      lastMessage: checkpoint.lastMessage ?? checkpoint.error ?? null,
+    };
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function parseTimestamp(value: string | null | undefined): number {
@@ -1098,6 +1128,12 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     .object(legacyTopLevelCreateAgentInputSchema)
     .strict();
   const commonSendAgentPromptInputSchema = {
+    messageId: z
+      .string()
+      .optional()
+      .describe(
+        "Stable caller-generated message ID for idempotent external OpenCode retries; reuse only with the identical payload.",
+      ),
     agentId: z.string(),
     prompt: z.string(),
     sessionMode: z.string().optional().describe("Optional mode to set before running the prompt."),
@@ -1878,22 +1914,25 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       agentId,
       prompt,
       sessionMode,
+      messageId,
       background = Boolean(callerAgentId),
       notifyOnFinish = Boolean(callerAgentId),
     }) => {
       const shouldNotifyOnFinish = Boolean(callerAgentId && notifyOnFinish && background);
 
-      await sendPromptToAgent({
+      const dispatch = await (options.dispatchPrompt ?? sendPromptToAgent)({
         agentManager,
         agentStorage,
         agentId,
         prompt,
         sessionMode,
+        messageId,
         logger: childLogger,
       });
 
       if (shouldNotifyOnFinish && callerAgentId) {
         setupFinishNotification({
+          followUp: dispatch.followUp,
           agentManager,
           agentStorage,
           childAgentId: agentId,
@@ -1904,12 +1943,14 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
 
       // If not running in background, wait for completion
       if (!background) {
-        const result = await waitForAgentWithTimeout(agentManager, agentId, {
-          waitForActive: true,
-        });
+        const result = dispatch.followUp
+          ? await waitForFollowUp(dispatch.followUp)
+          : await waitForAgentWithTimeout(agentManager, agentId, {
+              waitForActive: true,
+            });
 
         const responseData = {
-          success: true,
+          success: dispatch.followUp ? result.status !== "error" : true,
           status: result.status,
           lastMessage: result.lastMessage,
           permission: sanitizePermissionRequest(result.permission),

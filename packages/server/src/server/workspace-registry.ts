@@ -171,7 +171,8 @@ class FileBackedRegistry<TRecord extends RegistryRecord> {
   private readonly schema: z.ZodType<TRecord, unknown>;
   private readonly getId: (record: TRecord) => string;
   private loaded = false;
-  private readonly cache = new Map<string, TRecord>();
+  private cache = new Map<string, TRecord>();
+  private loadPromise: Promise<void> | null = null;
   private persistQueue: Promise<void> = Promise.resolve();
 
   constructor(options: {
@@ -205,31 +206,30 @@ class FileBackedRegistry<TRecord extends RegistryRecord> {
 
   async list(): Promise<TRecord[]> {
     await this.load();
-    return Array.from(this.cache.values());
+    return Array.from(this.cache.values(), (record) => ({ ...record }));
   }
 
   async get(id: string): Promise<TRecord | null> {
     await this.load();
-    return this.cache.get(id) ?? null;
+    const record = this.cache.get(id);
+    return record ? { ...record } : null;
   }
 
   async upsert(record: TRecord): Promise<void> {
-    await this.load();
     const parsed = this.schema.parse(record);
-    this.cache.set(this.getId(parsed), parsed);
-    await this.enqueuePersist();
+    await this.mutate((next) => {
+      next.set(this.getId(parsed), parsed);
+    });
   }
 
   async update(id: string, updater: (record: TRecord) => TRecord): Promise<TRecord | null> {
-    await this.load();
-    const existing = this.cache.get(id);
-    if (!existing) {
-      return null;
-    }
-    const next = this.schema.parse(updater(existing));
-    this.cache.set(id, next);
-    await this.enqueuePersist();
-    return next;
+    return this.mutate((next) => {
+      const existing = next.get(id);
+      if (!existing) return null;
+      const updated = this.schema.parse(updater({ ...existing }));
+      next.set(id, updated);
+      return updated;
+    });
   }
 
   async archive(id: string, archivedAt: string): Promise<void> {
@@ -237,30 +237,23 @@ class FileBackedRegistry<TRecord extends RegistryRecord> {
   }
 
   protected async archiveIfPresent(id: string, archivedAt: string): Promise<TRecord | null> {
-    await this.load();
-    const existing = this.cache.get(id);
-    if (!existing) return null;
-    return this.persistArchive(existing, archivedAt);
+    return this.mutate((next) => {
+      const existing = next.get(id);
+      if (!existing) return null;
+      const archived = this.schema.parse({ ...existing, updatedAt: archivedAt, archivedAt });
+      next.set(id, archived);
+      return archived;
+    });
   }
 
   protected async archiveIfActive(id: string, archivedAt: string): Promise<TRecord | null> {
-    await this.load();
-    const existing = this.cache.get(id);
-    if (!existing || existing.archivedAt) {
-      return null;
-    }
-    return this.persistArchive(existing, archivedAt);
-  }
-
-  private async persistArchive(existing: TRecord, archivedAt: string): Promise<TRecord> {
-    const next = this.schema.parse({
-      ...existing,
-      updatedAt: archivedAt,
-      archivedAt,
+    return this.mutate((next) => {
+      const existing = next.get(id);
+      if (!existing || existing.archivedAt) return null;
+      const archived = this.schema.parse({ ...existing, updatedAt: archivedAt, archivedAt });
+      next.set(id, archived);
+      return archived;
     });
-    this.cache.set(this.getId(next), next);
-    await this.enqueuePersist();
-    return next;
   }
 
   async remove(id: string): Promise<void> {
@@ -268,46 +261,56 @@ class FileBackedRegistry<TRecord extends RegistryRecord> {
   }
 
   protected async removeIfPresent(id: string): Promise<TRecord | null> {
-    await this.load();
-    const existing = this.cache.get(id);
-    if (!existing) {
-      return null;
-    }
-    this.cache.delete(id);
-    await this.enqueuePersist();
-    return existing;
+    return this.mutate((next) => {
+      const existing = next.get(id) ?? null;
+      next.delete(id);
+      return existing;
+    });
   }
 
   private async load(): Promise<void> {
-    if (this.loaded) {
-      return;
-    }
+    if (this.loaded) return;
+    this.loadPromise ??= this.readCommitted().catch((error) => {
+      this.loadPromise = null;
+      throw error;
+    });
+    await this.loadPromise;
+  }
 
-    this.cache.clear();
+  private async readCommitted(): Promise<void> {
+    const next = new Map<string, TRecord>();
     try {
       const raw = await fs.readFile(this.filePath, "utf8");
       const parsed = z.array(this.schema).parse(JSON.parse(raw));
       for (const record of parsed) {
-        this.cache.set(this.getId(record), record);
+        next.set(this.getId(record), record);
       }
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "ENOENT") {
         this.logger.error({ err: error, filePath: this.filePath }, "Failed to load registry file");
+        throw error;
       }
     }
+    this.cache = next;
     this.loaded = true;
   }
 
-  private async persist(): Promise<void> {
-    const records = Array.from(this.cache.values());
-    await writeJsonFileAtomic(this.filePath, records);
-  }
-
-  private async enqueuePersist(): Promise<void> {
-    const nextPersist = this.persistQueue.then(() => this.persist());
-    this.persistQueue = nextPersist.catch(() => {});
-    await nextPersist;
+  protected async mutate<T>(operation: (next: Map<string, TRecord>) => T): Promise<T> {
+    await this.load();
+    const mutation = this.persistQueue.then(async () => {
+      const draft = new Map(this.cache);
+      const result = operation(draft);
+      await writeJsonFileAtomic(this.filePath, Array.from(draft.values()));
+      // Readers and observers see only a successfully committed snapshot.
+      this.cache = draft;
+      return result;
+    });
+    this.persistQueue = mutation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return mutation;
   }
 }
 
@@ -315,7 +318,6 @@ export class FileBackedProjectRegistry
   extends FileBackedRegistry<PersistedProjectRecord>
   implements ProjectRegistry
 {
-  private allocationQueue: Promise<void> = Promise.resolve();
   private readonly projectIdFactory: () => string;
   private readonly mutationListeners = new Set<
     (mutation: {
@@ -343,12 +345,10 @@ export class FileBackedProjectRegistry
     projectKey?: string;
     timestamp: string;
   }): Promise<PersistedProjectRecord> {
-    const previous = this.allocationQueue;
-    let release!: () => void;
-    this.allocationQueue = new Promise<void>((resolve) => (release = resolve));
-    await previous;
-    try {
-      const active = (await this.list())
+    // Root selection and refresh share the lifecycle mutation lane. A separate allocation
+    // lock would still let an acknowledged archive/update be overwritten by a stale snapshot.
+    const result = await this.mutate((draft) => {
+      const active = Array.from(draft.values())
         .filter(
           (project) => !project.archivedAt && areEquivalentPaths(project.rootPath, input.rootPath),
         )
@@ -359,20 +359,20 @@ export class FileBackedProjectRegistry
         )[0];
       if (active) {
         if (active.kind === input.kind && active.projectKey === (input.projectKey ?? null))
-          return active;
-        const refreshed = {
+          return { record: active, changed: false };
+        const refreshed = createPersistedProjectRecord({
           ...active,
           kind: input.kind,
           projectKey: input.projectKey ?? null,
           updatedAt: input.timestamp,
-        };
-        await this.upsert(refreshed);
-        return refreshed;
+        });
+        draft.set(refreshed.projectId, refreshed);
+        return { record: refreshed, changed: true };
       }
 
       for (;;) {
         const projectId = this.projectIdFactory();
-        if (await this.get(projectId)) continue;
+        if (draft.has(projectId)) continue;
         const record = createPersistedProjectRecord({
           projectId,
           rootPath: input.rootPath,
@@ -382,12 +382,19 @@ export class FileBackedProjectRegistry
           createdAt: input.timestamp,
           updatedAt: input.timestamp,
         });
-        await this.upsert(record);
-        return record;
+        draft.set(projectId, record);
+        return { record, changed: true };
       }
-    } finally {
-      release();
+    });
+    const project = { ...result.record };
+    if (result.changed) {
+      await this.notifyMutation({
+        kind: "upsert",
+        projectId: project.projectId,
+        project: { ...project },
+      });
     }
+    return project;
   }
 
   subscribeToMutations(
