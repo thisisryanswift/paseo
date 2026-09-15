@@ -29,6 +29,11 @@ the titlebar row. Production builds leave the variable unset and show no label.
 
 `npm run dev` is only a shorthand for `npm run dev:server`. Keep `127.0.0.1:6767` for the packaged app and production-style `~/.paseo` state.
 
+For the Reef host's versioned Paseo/OpenCode upgrade and recovery procedure,
+see [reef-upgrades.md](reef-upgrades.md). This development guide covers local
+checkout and build workflows; it does not replace the host checkpoint and
+service validation steps.
+
 ## Nix desktop package
 
 The flake exposes `packages.<system>.desktop` on Linux and macOS:

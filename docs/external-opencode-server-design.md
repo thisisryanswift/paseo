@@ -4,6 +4,10 @@
 
 Allow Paseo to use an independently supervised OpenCode server while preserving direct native OpenCode access. The initial deployment runs both services on Reef, exposes both through Tailscale, and uses OpenCode HTTP Basic authentication.
 
+For the host-level version, dependency, checkpoint, and recovery procedure, see
+[Upgrading Reef's Paseo/OpenCode stack](reef-upgrades.md). This document owns
+the provider and native-session integration contract.
+
 ## Configuration
 
 The OpenCode provider accepts an optional HTTP(S) `serverUrl`. When present, Paseo attaches to that server instead of spawning or rotating `opencode serve`.
